@@ -282,6 +282,7 @@ static AudioStreamBasicDescription recordAudioStreamBasicDescription;
 
 static void AudioFileStreamPropertyListenerProc(void* clientData, AudioFileStreamID audioFileStream, AudioFileStreamPropertyID	propertyId, UInt32* flags)
 {
+    NSLog(@"[STKAudioPlayer] AudioFileStreamPropertyListenerProc");
 	STKAudioPlayer* player = (__bridge STKAudioPlayer*)clientData;
     
 	[player handlePropertyChangeForFileStream:audioFileStream fileStreamPropertyID:propertyId ioFlags:flags];
@@ -783,6 +784,7 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
 
 -(void) handlePropertyChangeForFileStream:(AudioFileStreamID)inAudioFileStream fileStreamPropertyID:(AudioFileStreamPropertyID)inPropertyID ioFlags:(UInt32*)ioFlags
 {
+    NSLog(@"[%@] handlePropertyChangeForFileStream %u fileStreamPropertyID %u", [self class], (unsigned int)*ioFlags, (unsigned int)inPropertyID);
 	OSStatus error;
     
     if (!currentlyReadingEntry)
@@ -794,6 +796,7 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
     {
         case kAudioFileStreamProperty_DataOffset:
         {
+            NSLog(@"[%@] kAudioFileStreamProperty_DataOffset", [self class]);
             SInt64 offset;
             UInt32 offsetSize = sizeof(offset);
             
@@ -806,6 +809,7 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
         }
         case kAudioFileStreamProperty_FileFormat:
         {
+            NSLog(@"[%@] kAudioFileStreamProperty_FileFormat", [self class]);
             char fileFormat[4];
 			UInt32 fileFormatSize = sizeof(fileFormat);
             
@@ -815,6 +819,8 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
         }
         case kAudioFileStreamProperty_DataFormat:
         {
+            NSLog(@"[%@] kAudioFileStreamProperty_DataFormat", [self class]);
+
             AudioStreamBasicDescription newBasicDescription;
             STKQueueEntry* entryToUpdate = currentlyReadingEntry;
 
@@ -860,12 +866,16 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
                 [self createAudioConverter:&currentlyReadingEntry->audioStreamBasicDescription];
                 
                 pthread_mutex_unlock(&playerMutex);
+            } else {
+                NSLog(@"[%@] currentlyReadingEntry->parsedHeader", [self class]);
             }
             
             break;
         }
         case kAudioFileStreamProperty_AudioDataByteCount:
         {
+            NSLog(@"[%@] kAudioFileStreamProperty_AudioDataByteCount", [self class]);
+            
             UInt64 audioDataByteCount;
             UInt32 byteCountSize = sizeof(audioDataByteCount);
             
@@ -877,15 +887,23 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
         }
 		case kAudioFileStreamProperty_ReadyToProducePackets:
         {
+            NSLog(@"[%@] kAudioFileStreamProperty_ReadyToProducePackets formatID %u = %u",
+                  [self class],
+                  (unsigned int)audioConverterAudioStreamBasicDescription.mFormatID,
+                  kAudioFileStreamProperty_ReadyToProducePackets);
 			if (!audioConverterAudioStreamBasicDescription.mFormatID == kAudioFormatLinearPCM)
 			{
+                                NSLog(@"[%@] discontinuous YES", [self class]);
 				discontinuous = YES;
+            } else {
+                NSLog(@"[%@] discontinuous NO", [self class]);
 			}
             
             break;
         }
         case kAudioFileStreamProperty_FormatList:
         {
+            NSLog(@"[%@] kAudioFileStreamProperty_FormatList", [self class]);
             Boolean outWriteable;
             UInt32 formatListSize;
             OSStatus err = AudioFileStreamGetPropertyInfo(inAudioFileStream, kAudioFileStreamProperty_FormatList, &formatListSize, &outWriteable);
@@ -1002,6 +1020,7 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
 
 -(BOOL) invokeOnPlaybackThread:(void(^)())block
 {
+    NSLog(@"[%@] invokeOnPlaybackThread", [self class]);
 	NSRunLoop* runLoop = playbackThreadRunLoop;
 	
     if (runLoop)
@@ -1036,11 +1055,14 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
 {
     if (currentlyPlayingEntry == nil)
     {
+        NSLog(@"[%@] seekToTime: no currentlyPlayingEntry", [self class]);
         return;
     }
     
+    
     OSSpinLockLock(&seekLock);
     
+    NSLog(@"[%@] seekAlreadyRequested ? %s %f", [self class], seekToTimeWasRequested ? "YES":"NO", value);
     BOOL seekAlreadyRequested = seekToTimeWasRequested;
     
     seekToTimeWasRequested = YES;
@@ -1048,6 +1070,7 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
     
     if (!seekAlreadyRequested)
     {
+        NSLog(@"seekVersion: %d", seekVersion);
         OSAtomicIncrement32(&seekVersion);
         
         OSSpinLockUnlock(&seekLock);
@@ -1055,6 +1078,8 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
         [self wakeupPlaybackThread];
         
         return;
+    } else {
+        NSLog(@"[%@] not seeking!", [self class]);
     }
     
     OSSpinLockUnlock(&seekLock);
@@ -1349,6 +1374,7 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
         
         if (currentlyPlayingEntry && currentlyPlayingEntry->parsedHeader && [currentlyPlayingEntry calculatedBitRate] > 0.0)
         {
+            NSLog(@"[%@] originalSeekVersion currentlyPlayingEntry bitrate:%f", [self class], [currentlyPlayingEntry calculatedBitRate]);
             int32_t originalSeekVersion;
             BOOL originalSeekToTimeRequested;
 
@@ -1357,6 +1383,13 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
             originalSeekToTimeRequested = seekToTimeWasRequested;
             OSSpinLockUnlock(&seekLock);
             
+            NSLog(@"[%@] originalSeekToTimeRequested (%s) && currentlyReadingEntry %@ == currentlyPlayingEntry %@ (%s)",
+                  [self class],
+                  originalSeekToTimeRequested ? "YES":"NO",
+                  currentlyReadingEntry.queueItemId,
+                  currentlyPlayingEntry.queueItemId,
+                  (currentlyReadingEntry == currentlyPlayingEntry) ? "YES":"NO"
+                  );
             if (originalSeekToTimeRequested && currentlyReadingEntry == currentlyPlayingEntry)
             {
                 [self processSeekToTime];
@@ -1364,13 +1397,17 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
                 OSSpinLockLock(&seekLock);
                 if (originalSeekVersion == seekVersion)
                 {
+                    NSLog(@"[%@] seeking to same time %d", [self class], seekVersion);
                     seekToTimeWasRequested = NO;
                 }
                 OSSpinLockUnlock(&seekLock);
+            } else {
+                NSLog(@"[%@] not calling processSeekToTime", [self class]);
             }
         }
         else if (currentlyPlayingEntry == nil && seekToTimeWasRequested)
         {
+            NSLog(@"[%@] setting seekToTimeWasRequested = NO", [self class]);
             seekToTimeWasRequested = NO;
         }
     }
@@ -1381,6 +1418,7 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
 
 -(void) startInternal
 {
+    NSLog(@"[%@] startInternal", [self class]);
 	@autoreleasepool
 	{
 		playbackThreadRunLoop = [NSRunLoop currentRunLoop];
@@ -1436,6 +1474,7 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
 
 -(void) processSeekToTime
 {
+    NSLog(@"[%@] processSeekToTime", [self class]);
 	OSStatus error;
     STKQueueEntry* currentEntry = currentlyReadingEntry;
     
@@ -1447,35 +1486,75 @@ static void AudioFileStreamPacketsProc(void* clientData, UInt32 numberBytes, UIn
     }
     
     SInt64 seekByteOffset = currentEntry->audioDataOffset + (requestedSeekTime / self.duration) * (currentlyReadingEntry.audioDataLengthInBytes);
+
+    NSLog(@"[%@] seekByteOffset %lld = currentEntry->audioDataOffset %llu + (requestedSeekTime %f / self.duration %f) * (currentlyReadingEntry.audioDataLengthInBytes %llu; currentEntry.dataSource.length %lld; currentEntry->packetBufferSize %u; (2 * currentEntry->packetBufferSize) %u",
+          [self class],
+          seekByteOffset,
+          currentEntry->audioDataOffset,
+          requestedSeekTime,
+          self.duration,
+          currentlyReadingEntry.audioDataLengthInBytes,
+          
+          currentEntry.dataSource.length,
+          (unsigned int)currentEntry->packetBufferSize,
+          (2 * currentEntry->packetBufferSize)
+          );
     
     if (seekByteOffset > currentEntry.dataSource.length - (2 * currentEntry->packetBufferSize))
     {
         seekByteOffset = currentEntry.dataSource.length - 2 * currentEntry->packetBufferSize;
     }
     
+    NSLog(@"[%@] before currentEntry->seekTime %f", [self class], currentEntry->seekTime);
     OSSpinLockLock(&currentEntry->spinLock);
     currentEntry->seekTime = requestedSeekTime;
     OSSpinLockUnlock(&currentEntry->spinLock);
+    NSLog(@"[%@] after currentEntry->seekTime %f", [self class], currentEntry->seekTime);
     
     double calculatedBitRate = [currentEntry calculatedBitRate];
     
     if (currentEntry->packetDuration > 0 && calculatedBitRate > 0)
     {
+        NSLog(@"[%@] currentEntry->packetDuration %f; calculatedBitRate %f ", [self class], currentEntry->packetDuration, calculatedBitRate);
         UInt32 ioFlags = 0;
         SInt64 packetAlignedByteOffset;
         SInt64 seekPacket = floor(requestedSeekTime / currentEntry->packetDuration);
         
+        NSLog(@"[%@] seekPacket %lld ", [self class], seekPacket);
+        
         error = AudioFileStreamSeek(audioFileStream, seekPacket, &packetAlignedByteOffset, &ioFlags);
         
+        NSLog(@"[%@] ioFlags %u %s",
+              [self class],
+              (unsigned int)ioFlags,
+              ioFlags & kAudioFileStreamSeekFlag_OffsetIsEstimated ? "OffsetIsEstimated YES":"OffsetIsEstimated NO"
+              );
         if (!error && !(ioFlags & kAudioFileStreamSeekFlag_OffsetIsEstimated))
         {
+            //double delta = ((seekByteOffset - (SInt64)currentEntry->audioDataOffset) - packetAlignedByteOffset) / calculatedBitRate * 8;
             double delta = ((seekByteOffset - (SInt64)currentEntry->audioDataOffset) - packetAlignedByteOffset) / calculatedBitRate * 8;
             
+            NSLog(@"[%@] delta: %f = ((seekByteOffset %lld - (SInt64)currentEntry->audioDataOffset %llu) - packetAlignedByteOffset %lld) / calculatedBitRate %f * 8",
+                  [self class],
+                  delta, //double
+                  seekByteOffset, //SInt64
+                  currentEntry->audioDataOffset, //UInt64
+                  packetAlignedByteOffset, //SInt64
+                  calculatedBitRate  //double
+                  );
+            NSLog(@"[%@] before2 currentEntry->seekTime %f delta %f", [self class], currentEntry->seekTime, delta);
             OSSpinLockLock(&currentEntry->spinLock);
             currentEntry->seekTime -= delta;
             OSSpinLockUnlock(&currentEntry->spinLock);
+            NSLog(@"[%@] after2 currentEntry->seekTime %f delta %f", [self class], currentEntry->seekTime, delta);
             
             seekByteOffset = packetAlignedByteOffset + currentEntry->audioDataOffset;
+            
+            NSLog(@"[%@] seekByteOffset %lld = packetAlignedByteOffset %lld + currentEntry->audioDataOffset %llu",
+                  [self class],
+                  seekByteOffset,
+                  packetAlignedByteOffset,
+                  currentEntry->audioDataOffset);
         }
     }
     

@@ -31,6 +31,8 @@
 
 -(void) reset
 {
+    NSLog(@"[%@] reset", [self class]);
+    
     OSSpinLockLock(&self->spinLock);
     self->framesQueued = 0;
     self->framesPlayed = 0;
@@ -42,6 +44,7 @@
 {
     double retval;
     
+    //NSLog(@"[%@] packetDuration %f", [self class], packetDuration);
     if (packetDuration > 0)
 	{
 		if (processedPacketsCount > STK_BIT_RATE_ESTIMATION_MIN_PACKETS_PREFERRED || (audioStreamBasicDescription.mBytesPerFrame == 0 && processedPacketsCount > STK_BIT_RATE_ESTIMATION_MIN_PACKETS_MIN))
@@ -50,12 +53,27 @@
 			
 			retval = averagePacketByteSize / packetDuration * 8;
 			
+            NSLog(@"[%@] calculatedBitRate %f = processedPacketsSizeTotal %d / processedPacketsCount %d ) / packetDuration %f * 8",
+                  [self class],
+                  retval,
+                  processedPacketsSizeTotal,
+                  processedPacketsCount,
+                  packetDuration
+                  );
 			return retval;
+        } else {
+            NSLog(@"[%@] ", [self class]);
 		}
 	}
 	
     retval = (audioStreamBasicDescription.mBytesPerFrame * audioStreamBasicDescription.mSampleRate) * 8;
     
+    NSLog(@"[%@] calculatedBitRate %f = audioStreamBasicDescription.mBytesPerFrame %u * audioStreamBasicDescription.mSampleRate %f * 8",
+          [self class],
+          retval,
+          (unsigned int)audioStreamBasicDescription.mBytesPerFrame,
+          audioStreamBasicDescription.mSampleRate
+          );
     return retval;
 }
 
@@ -65,6 +83,7 @@
     
     if (self->sampleRate <= 0)
     {
+        NSLog(@"[%@] self->sampleRate <= 0, so duration = 0", [self class]);
         return 0;
     }
     
@@ -74,9 +93,16 @@
     
     if (calculatedBitRate < 1.0 || self.dataSource.length == 0)
     {
+        NSLog(@"[%@] duration = 0", [self class]);
         return 0;
     }
     
+    NSLog(@"[%@] duration %f = audioDataLengthInBytes %llu / ( calculatedBitRate %f / 8)",
+           [self class],
+           audioDataLengthInBytes / (calculatedBitRate / 8),
+           audioDataLengthInBytes,
+           calculatedBitRate
+           );
     return audioDataLengthInBytes / (calculatedBitRate / 8);
 }
 
@@ -113,6 +139,7 @@
     Float64 retval = self->seekTime + self->framesPlayed;
     OSSpinLockUnlock(&self->spinLock);
     
+    NSLog(@"[%@] progressInFrames %f", [self class], retval);
     return retval;
 }
 
